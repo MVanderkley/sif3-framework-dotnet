@@ -16,7 +16,9 @@
 
 using Sif.Framework.Model.DataModels;
 using Sif.Framework.Model.Exceptions;
+using Sif.Framework.Model.Infrastructure;
 using Sif.Framework.Service.Providers;
+using Sif.Framework.Service.Serialisation;
 using Sif.Framework.Utils;
 using Sif.Framework.WebApi.ModelBinders;
 using Sif.Specification.Infrastructure;
@@ -25,6 +27,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Net;
 using System.Web.Http;
+using System.Xml.Serialization;
 
 namespace Sif.Framework.Providers
 {
@@ -41,8 +44,7 @@ namespace Sif.Framework.Providers
         /// Create an instance based on the specified service.
         /// </summary>
         /// <param name="service">Service used for managing the object type.</param>
-        public BasicProvider(IBasicProviderService<T> service)
-            : base()
+        public BasicProvider(IBasicProviderService<T> service) : base()
         {
             this.service = service;
         }
@@ -52,13 +54,18 @@ namespace Sif.Framework.Providers
         /// </summary>
         public override IHttpActionResult Post(List<T> objs, [MatrixParameter] string[] zoneId = null, [MatrixParameter] string[] contextId = null)
         {
+            string sessionToken;
 
-            if (!authService.VerifyAuthenticationHeader(Request.Headers))
+            if (!authenticationService.VerifyAuthenticationHeader(Request.Headers, out sessionToken))
             {
                 return Unauthorized();
             }
 
             // Check ACLs and return StatusCode(HttpStatusCode.Forbidden) if appropriate.
+            if (!authorisationService.IsAuthorised(Request.Headers, sessionToken, $"{TypeName}s", RightType.CREATE, RightValue.APPROVED))
+            {
+                return StatusCode(HttpStatusCode.Forbidden);
+            }
 
             if ((zoneId != null && zoneId.Length != 1) || (contextId != null && contextId.Length != 1))
             {
@@ -149,13 +156,18 @@ namespace Sif.Framework.Providers
         /// </summary>
         public override IHttpActionResult Put(List<T> objs, [MatrixParameter] string[] zoneId = null, [MatrixParameter] string[] contextId = null)
         {
+            string sessionToken;
 
-            if (!authService.VerifyAuthenticationHeader(Request.Headers))
+            if (!authenticationService.VerifyAuthenticationHeader(Request.Headers, out sessionToken))
             {
                 return Unauthorized();
             }
 
             // Check ACLs and return StatusCode(HttpStatusCode.Forbidden) if appropriate.
+            if (!authorisationService.IsAuthorised(Request.Headers, sessionToken, $"{TypeName}s", RightType.CREATE, RightValue.APPROVED))
+            {
+                return StatusCode(HttpStatusCode.Forbidden);
+            }
 
             if ((zoneId != null && zoneId.Length != 1) || (contextId != null && contextId.Length != 1))
             {
@@ -212,6 +224,22 @@ namespace Sif.Framework.Providers
             result = Ok(updateResponse);
 
             return result;
+        }
+
+        /// <summary>
+        /// <see cref="Provider{TSingle, TMultiple}.SerialiseEvents(TMultiple)">SerialiseEvents</see>
+        /// </summary>
+        [NonAction]
+        public override string SerialiseEvents(List<T> obj)
+        {
+
+            XmlRootAttribute xmlRootAttribute = new XmlRootAttribute(TypeName + "s")
+            {
+                Namespace = SettingsManager.ConsumerSettings.DataModelNamespace,
+                IsNullable = false
+            };
+
+            return SerialiserFactory.GetXmlSerialiser<List<T>>(xmlRootAttribute).Serialise(obj);
         }
 
     }
